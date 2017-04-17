@@ -13,12 +13,13 @@ def XOR(str1, str2):
     # Append leading zero if the number of digits is odd
     if len(h) % 2 != 0: h = '0' + h
     # Return outcome as bytearray
-    return bytearray.fromhex(h)
+    return bytes.fromhex(h)
 
 @challenge(1, 2)
 def challenge_2():
     assert XOR(bytearray.fromhex('1c0111001f010100061a024b53535009181c'), bytearray.fromhex('686974207468652062756c6c277320657965')) == bytearray.fromhex('746865206b696420646f6e277420706c6179')
     print("Pass")
+
 
 ## Challenge 3
 def hex_to_text(text): return ''.join([chr(y) for y in text])
@@ -42,6 +43,7 @@ def find_key(encrypted):
 def challenge_3():
     print('{0}\t{2:.2f}\t{1}'.format(*find_key(bytearray.fromhex('1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736'))))
 
+
 ## Challenge 4
 def find_key_from_file(file):
     # Open file, read lines to list
@@ -57,6 +59,7 @@ def find_key_from_file(file):
 def challenge_4():
     print('{0}\t{2:.2f}\t{1}'.format(*find_key_from_file('inputs/4.txt')))
 
+
 ## Challenge 5
 to_encrypt = "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal"
 def text_to_hex(text): return bytearray([ord(x) for x in text])
@@ -69,6 +72,7 @@ def encrypt_repeat(string, key):
 def challenge_5():
     assert encrypt_repeat(text_to_hex(to_encrypt), text_to_hex("ICE")) == bytearray.fromhex('0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f')
     print("Pass")
+
 
 ## Challenge 6
 def hamming_distance(str1, str2):
@@ -128,34 +132,42 @@ def challenge_6():
 
 
 ## Challenge 7
-def decrypt_aes_ecb(file, key):
+def decrypt_aes_ecb(text, key):
     from Crypto.Cipher import AES
     import base64
-    unpad = lambda s: s[:-ord(s[len(s) - 1:])]
     # Create new AES object with the given key in ECB mode
     obj = AES.new(key, AES.MODE_ECB)
-    # Open file, decode
-    with open(file) as file:
-        contents = base64.b64decode(file.read())
     # Decrypt file, remove padding, display as UTF-8
-    return str(unpad(obj.decrypt(contents)), 'utf-8')
+    s = obj.decrypt(text)
+    return obj.decrypt(text)
+
+def unpad(text): return text[:-ord(text[len(text) - 1:])]
 
 @challenge(1, 7)
 def challenge_7():
-    print('Found text: {}'.format(decrypt_aes_ecb('inputs/7.txt', 'YELLOW SUBMARINE')))
+    import base64
+    with open('inputs/7.txt') as file:
+        contents = base64.b64decode(file.read())
+    plaintext = unpad(decrypt_aes_ecb(contents, 'YELLOW SUBMARINE'))
+    print('Found text: {}'.format(str(plaintext, 'utf-8')))
+
 
 ## Challenge 8
+def duplicate_chunks(line):
+    # Create list with 16 byte (=128 bit) chunks
+    results = [line[i:i+16] for i in range(0, len(line), 16)]
+    # Check whether the number of unique chunks is equal to the overall number of chunks
+    difference = len(results) - len(set(results))
+    # Report if the difference is not equal to 0
+    return difference
+
 def find_ecb(file):
     # Open file, read lines to list
     with open(file) as file:
         lines = file.read().splitlines()
     # Iterate over lines
     for i, line in enumerate(lines):
-        # Create list with 16 byte (=128 bit) chunks
-        results = [line[i:i+16] for i in range(0, len(line), 16)]
-        # Check whether the number of unique chunks is equal to the overall number of chunks
-        difference = len(results) - len(set(results))
-        # Report if the difference is not equal to 0
+        difference = duplicate_chunks(line)
         if difference != 0:
             print('FOUND: line {} has {} non-unique blocks'.format(i, difference))
 
@@ -163,11 +175,13 @@ def find_ecb(file):
 def challenge_8():
     find_ecb('inputs/8.txt')
 
+
 ## Execute individual challenges
-challenge_2()
-challenge_3()
-challenge_4()
-challenge_5()
-challenge_6()
-challenge_7()
-challenge_8()
+if __name__ == '__main__':
+    challenge_2()
+    challenge_3()
+    challenge_4()
+    challenge_5()
+    challenge_6()
+    challenge_7()
+    challenge_8()
