@@ -1,4 +1,4 @@
-from challenges import challenge
+from challenges import challenge, assert_true
 # From: https://cryptopals.com/sets/1
 
 ## Challenge 2
@@ -17,8 +17,7 @@ def XOR(str1, str2):
 
 @challenge(1, 2)
 def challenge_2():
-    assert XOR(bytearray.fromhex('1c0111001f010100061a024b53535009181c'), bytearray.fromhex('686974207468652062756c6c277320657965')) == bytearray.fromhex('746865206b696420646f6e277420706c6179')
-    print("Pass")
+    assert_true(XOR(bytearray.fromhex('1c0111001f010100061a024b53535009181c'), bytearray.fromhex('686974207468652062756c6c277320657965')) == bytearray.fromhex('746865206b696420646f6e277420706c6179'))
 
 
 ## Challenge 3
@@ -70,9 +69,7 @@ def encrypt_repeat(string, key):
 
 @challenge(1, 5)
 def challenge_5():
-    assert encrypt_repeat(text_to_hex(to_encrypt), text_to_hex("ICE")) == bytearray.fromhex('0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f')
-    print("Pass")
-
+    assert_true(encrypt_repeat(text_to_hex(to_encrypt), text_to_hex("ICE")) == bytearray.fromhex('0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f'))
 
 ## Challenge 6
 def hamming_distance(str1, str2):
@@ -137,8 +134,7 @@ def decrypt_aes_ecb(text, key):
     import base64
     # Create new AES object with the given key in ECB mode
     obj = AES.new(key, AES.MODE_ECB)
-    # Decrypt file, remove padding, display as UTF-8
-    s = obj.decrypt(text)
+    # Decrypt text
     return obj.decrypt(text)
 
 def unpad(text): return text[:-ord(text[len(text) - 1:])]

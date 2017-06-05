@@ -1,4 +1,4 @@
-from challenges import challenge
+from challenges import challenge, assert_true
 import random
 import base64
 import set1
@@ -15,8 +15,7 @@ def pkcs7_add_padding(input, length):
 
 @challenge(2, 9)
 def challenge_9():
-    pkcs7_add_padding(bytes("YELLOW SUBMARINE", 'utf-8'), 20) == bytes("YELLOW SUBMARINE\x04\x04\x04\x04", 'utf-8')
-    print("Pass")
+    assert_true(pkcs7_add_padding(bytes("YELLOW SUBMARINE", 'utf-8'), 20) == bytes("YELLOW SUBMARINE\x04\x04\x04\x04", 'utf-8'))
 
 
 ## Challenge 10
@@ -38,7 +37,7 @@ def decrypt_aes_cbc(text, key, iv):
     # Create blocks of the key's length each
     blocks = [text[i:i+len(key)] for i in range(0, len(text), len(key))]
     results = []
-    for i, block in enumerate(blocks):
+    for _, block in enumerate(blocks):
         # Decrypt the current block with the given key
         deciphered_block = set1.decrypt_aes_ecb(block, key)
         # XOR the deciphered block with the IV
@@ -148,8 +147,7 @@ def bruteforce_ecb_key(key, start = b''):
 @challenge(2, 12)
 def challenge_12():
     key = random_bytes(16)
-    assert bruteforce_ecb_key(key) == magic_string
-    print("Pass")
+    assert_true(bruteforce_ecb_key(key) == magic_string)
 
 
 ## Challenge 13
@@ -162,7 +160,11 @@ def query_parser(input):
     return result
 
 def obj_to_query(input):
-    return '&'.join([k +'='+str(v) for (k,v) in input.items()])
+    #return '&'.join([k + '=' + str(v) for (k,v) in input.items()])
+    # As Python does not guarantee order of dictionaries, the following is used instead
+    order = {'email':0, 'uid':1, 'role':2}
+    pairs = sorted(list(input.items()), key=lambda x: x[0][2])
+    return '&'.join([k + '=' + str(v) for (k, v) in pairs])
 
 def profile_for(input):
     new_obj = {'email': input.replace('&', '').replace('=', ''), 'uid': 10, 'role': 'user'}
@@ -193,11 +195,11 @@ def challenge_13():
 
     # Using the decryption oracle and the constructed ciphertext, get the parsed profile
     plaintext = str(dec_oracle(constructed_ciphertext), 'utf-8')
+    print(plaintext)
     created_profile = query_parser(plaintext)
 
     # Make sure the role was spoofed successfully
-    assert created_profile['role'] == 'admin'
-    print('Pass')
+    assert_true(created_profile['role'] == 'admin')
 
 
 ## Challenge 14
@@ -248,19 +250,19 @@ def challenge_14():
     encrypt = lambda x: encrypt_aes_ecb(prefix + x + magic_string, key)
 
     # Brute force the magic string
-    assert bruteforce_ecb_key_2(encrypt) == magic_string
-    print("Pass")
+    assert_true(bruteforce_ecb_key_2(encrypt) == magic_string)
 
 
 ## Challenge 15
 def pkcs7_remove_padding(text, block_size = 16):
     # Check if text is multiple of given {block_size}
-    if len(text) % block_size != 0: raise ValueError("Invalid length")
+    if len(text) % block_size != 0: raise ValueError("Invalid length ({} vs {})".format(len(text), block_size))
     # Get the length by obtaining the ordinal value of the last character in the given text
-    length = ord(text[len(text) - 1:])
+    length = text[-1]
+    if length == 0: raise ValueError("Invalid padding (cannot be zero byte)")
+    if length > block_size: raise ValueError("Invalid padding (value not in valid range)")
     # Check if the last {length} characters are equal to \x{length}
-    for i in range(1, length + 1):
-        if text[-i] != length: raise ValueError("Invalid padding")
+    if text[-length:] != bytes([length]) * length: raise ValueError("Invalid padding")
     # Return the input, bar the padding
     return text[:-length]
 
@@ -313,13 +315,13 @@ def challenge_16():
 
     try:
         # Verify this modified ciphertext will now parse 'admin':'true'
-        assert challenge_16_admin_check(bytes(ciphertext), key, iv)
+        assert_true(challenge_16_admin_check(bytes(ciphertext), key, iv))
     except ValueError as error:
         # This may happen if the second block outputs an '=' or '&' by accident
         print('Invalid string formed, trying again')
         challenge_16()
 
-    print('Pass')
+
 
 
 ## Execute individual challenges
