@@ -33,7 +33,7 @@ def encrypt_aes_ecb(text, key, padding = True):
 
 assert set1.unpad(set1.decrypt_aes_ecb(encrypt_aes_ecb(bytes("O Brave New World", 'utf-8'), "YELLOW SUBMARINE"), "YELLOW SUBMARINE")) == bytes("O Brave New World", 'utf-8')
 
-def decrypt_aes_cbc(text, key, iv):
+def decrypt_aes_cbc(text, key, iv, unpad=True):
     # Create blocks of the key's length each
     blocks = [text[i:i+len(key)] for i in range(0, len(text), len(key))]
     results = []
@@ -47,7 +47,7 @@ def decrypt_aes_cbc(text, key, iv):
         # Set the IV of the next block as the current block's ciphertext
         iv = block
     # Return the unpadded result
-    return set1.unpad(bytes(results))
+    return set1.unpad(bytes(results)) if unpad else bytes(results)
 
 @challenge(2, 10)
 def challenge_10():
@@ -255,6 +255,7 @@ def challenge_14():
 
 ## Challenge 15
 def pkcs7_remove_padding(text, block_size = 16):
+    if len(text) <= 0: raise ValueError("No text provided {}")
     # Check if text is multiple of given {block_size}
     if len(text) % block_size != 0: raise ValueError("Invalid length ({} vs {})".format(len(text), block_size))
     # Get the length by obtaining the ordinal value of the last character in the given text
