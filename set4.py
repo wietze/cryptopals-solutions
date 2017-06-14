@@ -2,6 +2,7 @@ import random
 import base64
 import math
 import external.slowsha
+import external.md4
 from challenges import challenge, assert_true
 import set1, set2, set3
 # From: https://cryptopals.com/sets/4
@@ -25,7 +26,7 @@ def find_ctr_plaintext(ciphertext, replace_function):
 @challenge(4, 25)
 def challenge_25():
     key = set2.random_bytes(16)
-    nonce = random.randrange(1,10**10)
+    nonce = random.randrange(1, 10**10)
     # Get plaintext
     with open('inputs/25.txt') as file:
         contents = base64.b64decode(file.read())
@@ -52,7 +53,7 @@ def challenge_26_encryption(plaintext, key, nonce):
     return set3.encrypt_aes_ctr(text, key, nonce)
 
 def challenge_26_admin_check(ciphertext, key, nonce):
-    # Obtain plaintexzt
+    # Obtain plaintext
     plaintext = set2.pkcs7_remove_padding(set3.decrypt_aes_ctr(ciphertext, key, nonce))
     # Parse text as object
     items = {x:y for x, y in [z.split(b'=') for z in plaintext.split(b';')]}
@@ -83,7 +84,7 @@ def challenge_27_encryption(plaintext, key):
     # Initialise prefix and suffix
     prefix = b"comment1=cooking%20MCs;userdata="
     suffix = b";comment2=%20like%20a%20pound%20of%20bacon"
-    # Generate the full plaintext, which is about to be encrypted
+    # Generate the full plaintext
     text = set2.pkcs7_add_padding(prefix + bytes(plaintext.replace(';','').replace('&', ''), 'utf-8') + suffix, 16)
     # Return ciphertext
     return set2.encrypt_aes_cbc(text, key, iv)
@@ -91,7 +92,7 @@ def challenge_27_encryption(plaintext, key):
 def challenge_27_check_decrypt(ciphertext, key):
     # Obtain plaintext
     deciphered = set2.decrypt_aes_cbc(ciphertext, key, iv=key, unpad=False)
-    #plaintext = set2.pkcs7_remove_padding(deciphered)
+    # Check if text contains high ASCII values
     for byte in deciphered:
         if byte > 128: raise ValueError("Invalid ASCII obtained in text", deciphered)
     return True
@@ -106,7 +107,7 @@ def challenge_27():
     ciphertext = ciphertext[0:16] + b'\x00'*16 + ciphertext[0:16]
     try:
         # Verify this modified ciphertext will now parse 'admin':'true'
-        assert_true(challenge_27_check_decrypt(ciphertext, key))
+        assert_true(not challenge_27_check_decrypt(ciphertext, key))
     except ValueError as error:
         # Extract the deciphered text from the exception
         plaintext = error.args[1]
@@ -180,9 +181,9 @@ def challenge_29():
     string_to_inject = b";admin=true"
     # Create a forged mac:
     # - The forged length is {msg} and it's padding (hence a multiple of 64), plus the length of our injected string
-    # - We feed the SHA-1 instance the [a-e] parameters obtained from the original MAC
+    # - We feed the SHA-1 instance the [a-e] parameters obtained from the original mac
     forged_mac = external.slowsha.SHA1(string_to_inject, math.ceil(len(msg) / 64) * 64 + len(string_to_inject), abcde)
-    # To figure out what message we actually signed, we need to figure out what the padding was of the original HMAC
+    # To figure out what message we actually signed, we need to figure out what the padding was of the original mac
     # Because we don't know the key, we have to guess the key length
     for key_length_guess in range(4, 41):
         # Compose the candidate message based on the key length guess
@@ -192,7 +193,57 @@ def challenge_29():
             print("Successfully forged message - key used had length {}".format(key_length_guess))
             assert_true(True)
             return
-    raise Exception("Could not fake HMAC")
+    raise Exception("Could not forge MAC")
+
+
+## Challenge 30
+def md4_mac(key, message):
+    # Using MD4 implementation from https://gist.github.com/prokls/86b3c037df19a8c957fe
+    return external.md4.MD4(key + message)
+
+def get_md4_padding(msg):
+    # Copied from the original MD4 function, with the _handle() calls removed
+    n = len(msg)
+    bit_len = n * 8
+    index = n & 0x3f
+    pad_len = 120 - index
+    if index < 56:
+        pad_len = 56 - index
+    padding = b'\x80' + b'\x00' * 63
+    suffix = bit_len.to_bytes(8, 'little', signed=False)
+    pad = padding[:pad_len] + suffix
+    return pad
+
+@challenge(4, 30)
+def challenge_30():
+    # Generate random key of random number of bytes
+    key = set2.random_bytes(random.randrange(4, 40))
+    # Prepare validation function
+    def validate_mac(message, digest):
+        return md4_mac(key, message).digest() == digest.digest()
+    # Prepare message to sign
+    msg = b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon"
+    # Generate genuine mac of the message
+    original_mac = md4_mac(key, msg)
+    # Obtain a, b, c and d
+    abcd = original_mac.abcd()
+    # Prepare string to inject
+    string_to_inject = b";admin=true"
+    # Create a forged mac:
+    # - The forged length is {msg} and it's padding (hence a multiple of 64), plus the length of our injected string
+    # - We feed the MD4 instance the [a-d] parameters obtained from the original mac
+    forged_mac = external.md4.MD4(string_to_inject, math.ceil(len(msg) / 64) * 64 + len(string_to_inject), abcd)
+    # To figure out what message we actually signed, we need to figure out what the padding was of the original mac
+    # Because we don't know the key, we have to guess the key length
+    for key_length_guess in range(4, 40):
+        # Compose the candidate message based on the key length guess
+        signed_msg_guess = msg + get_md4_padding(b'\x00'*key_length_guess + msg) + string_to_inject
+        # Verify the validity of the guessed message with the forged mac
+        if validate_mac(signed_msg_guess, forged_mac):
+            print("Successfully forged message - key used had length {}".format(key_length_guess))
+            assert_true(True)
+            return
+    raise Exception("Could not forge MAC")
 
 
 ## Execute individual challenges
@@ -202,3 +253,4 @@ if __name__ == '__main__':
     challenge_27()
     challenge_28()
     challenge_29()
+    challenge_30()
