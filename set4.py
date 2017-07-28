@@ -1,8 +1,11 @@
 import random
 import base64
 import math
+import time
 import external.slowsha
 import external.md4
+import _thread
+import requests
 from challenges import challenge, assert_true
 import set1, set2, set3
 # From: https://cryptopals.com/sets/4
@@ -246,6 +249,110 @@ def challenge_30():
     raise Exception("Could not forge MAC")
 
 
+## Challenge 31
+def insecure_compare(b1, b2, sleep=0.7):
+    # Iterate over the character positions both inputs have
+    for i in range(min(len(b1), len(b2))):
+        # If equal, sleep
+        if b1[i] == b2[i]:
+            time.sleep(sleep)
+        # If unequal, stop and return false
+        else:
+            return False
+    # If all characters are the same, ensure the lengths of both inputs are equal
+    return len(b1) == len(b2)
+
+def hmac_sha1(key, message):
+    # Use python's sha1 implementation here to speed up
+    import hashlib
+    # If key bigger than 16 bytes, hash it
+    if len(key) > 16:
+        key = hashlib.sha1(key)
+    # if key smaller than 16 bytes, pad it with zero bytes
+    if len(key) < 16:
+        key = key + b'\x00' * (16 - len(key))
+    # Create o and i key pad
+    o_key_pad = bytes([x ^ y for x, y in zip(b'\x5c' * 16, key)])
+    i_key_pad = bytes([x ^ y for x, y in zip(b'\x36' * 16, key)])
+    # Return HMAC
+    return hashlib.sha1(o_key_pad + hashlib.sha1(i_key_pad + message).digest())
+
+def webserver(secret_key, sleep=0.07):
+    from flask import Flask, request, abort
+    app = Flask(__name__, static_url_path='')
+
+    # Disable logging to console
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+
+    # Listen to calls to /
+    @app.route("/")
+    def hello():
+        # Only continue if file and signature are specified
+        if 'file' in request.args and 'signature' in request.args:
+            # use insecure_compare for comparing the correct hmac of string {file} to the given signature
+            if insecure_compare(hmac_sha1(secret_key, bytes(request.args['file'], 'utf-8')).hexdigest(), request.args['signature'], sleep):
+                return "", 200
+            else:
+                abort(500)
+        else:
+            return 'No valid input was provided.'
+    app.run()
+    print("Web server started")
+
+def retrieve_valid_hmac(filename, rounds=1):
+    # Dummy connection - first connection takes always longer
+    requests.get("http://127.0.0.1:5000/")
+    # Initialise guessed hmac
+    guess = ""
+    # Iterate over the number of characters in an HMAC
+    for _ in range(40):
+        overview = {}
+        for r in range(rounds):
+            # Try all possible characters
+            for char in list('0123456789abcdef'):
+                start = time.time()
+                # Use our guess so far plus the new character
+                requests.get("http://127.0.0.1:5000?file=" + filename.decode("utf-8")  + "&signature=" + guess + char + "_")
+                end = time.time()
+                # Compute time the request took
+                overview[char] = overview.get(char, 0) + (end - start)
+        # Get the character that took the most time, add it to the guessed hmac
+        guess += max(overview.items(), key=lambda x: x[1])[0]
+    # Return the guess
+    return guess
+
+
+@challenge(4, 31)
+def challenge_31():
+    # Generate random key
+    key = set2.random_bytes(16)
+    filename = b'filename'
+    # Set up web server
+    _thread.start_new_thread(webserver, (key, ))
+    # Generate the hmac we're looking for
+    correct_hmac = hmac_sha1(key, filename).hexdigest()
+    # Try to guess the hmac using our timing attack
+    guessed_hmac = retrieve_valid_hmac(filename)
+    # Verify the guessed hmac is equal to the correct hmac
+    assert_true(correct_hmac == guessed_hmac)
+
+## Challenge 32
+@challenge(4, 32)
+def challenge_32():
+    # Generate random key
+    key = set2.random_bytes(16)
+    filename = b'filename'
+    # Set up web server, but now with a very small 'insecure_comparison' sleep time
+    _thread.start_new_thread(webserver, (key, 0.01))
+    # Generate the hmac we're looking for
+    correct_hmac = hmac_sha1(key, filename).hexdigest()
+    # Try to guess the hmac using our timing attack, but now with 10 rounds for each guess
+    guessed_hmac = retrieve_valid_hmac(filename, 10)
+    # Verify the guessed hmac is equal to the correct hmac
+    assert_true(correct_hmac == guessed_hmac)
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_25()
@@ -254,3 +361,5 @@ if __name__ == '__main__':
     challenge_28()
     challenge_29()
     challenge_30()
+    challenge_31()
+    challenge_32()
