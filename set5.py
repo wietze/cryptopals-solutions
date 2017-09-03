@@ -1,5 +1,7 @@
 import random
 import hashlib
+import codecs
+import functools
 
 from challenges import challenge, assert_true
 import set1, set2, set3, set4
@@ -120,7 +122,7 @@ class EchoEve:
         self.g = g
         return (p, g, p)
 
-    def intercept_bob_receive(self, inp):
+    def intercept_bob_receive(self, _):
         return self.p
 
     def intercept_alice_send_msg(self, inp):
@@ -168,7 +170,137 @@ def challenge_34():
     # Verify exchanges were valid and Eve was able to obtain the original message
     assert_true(exchange_1_valid and exchange_2_valid and exchange_2_cracked)
 
+
+## Challenge 39
+# All prime numbers between 2 and 1000
+PRIMES = set([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607, 613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701, 709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811, 821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911, 919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997])
+
+def xgcd(a, b):
+    if a == 0:
+        return (b, 0, 1)
+    g, y, x = xgcd(b % a, a)
+    return (g, x - (b // a) * y, y)
+
+def modinv(a, m):
+    g, x, _ = xgcd(a, m)
+    if g != 1:
+        raise ValueError('Given numbers are not coprime.')
+    else:
+        return x % m
+
+def are_coprime(int_list):
+    # Make sure there are no duplicates in the list
+    if len(set(int_list)) != len(int_list): return False
+    # Get a list of all items to compare
+    comparison_list = set([(min(x, y), max(x, y)) for x in int_list for y in int_list if x != y])
+    # For each pair...
+    for item in comparison_list:
+        # Find the XGCD
+        g, _, _ = xgcd(*item)
+        # If `g` != 1, they are not coprime
+        if g != 1: return False
+    # If all `g`s unequal to 1, we know all ints are coprime
+    return True
+
+def set_up_rsa(e, pqs=set()):
+    # Textbook RSA
+    try:
+        # Select random `p`
+        p = random.sample(PRIMES - pqs, 1)[0]
+        # Add `p` to `pqs` to avoid picking it as q again
+        pqs.add(p)
+        # Select random `q`
+        q = random.sample(PRIMES - pqs, 1)[0]
+        # Add `q` to `pqs`
+        pqs.add(q)
+        # Calculate `n`
+        n = p * q
+        # Calculate `et`
+        et = (p - 1) * (q - 1)
+        # Find `d`
+        d = modinv(e, et)
+    except ValueError:
+        # If e and et are not coprime, the modular inverse won't exist.
+        # Hence, generate two new primes and try again
+        return set_up_rsa(e)
+    # Return public and private keys
+    public = (e, n)
+    private = (d, n)
+    return public, private
+
+def encrypt_rsa(msg, key):
+    # Note that encrypt = decrypt for RSA
+    return modexp(msg, key[0], key[1])
+
+def string_to_int(message):
+    return int(codecs.encode(message, 'hex'), 16)
+
+def int_to_string(integer):
+    return codecs.decode(hex(integer)[2:], 'hex')
+
+assert int_to_string(string_to_int(b'test')) == b'test'
+
+@challenge(5, 39)
+def challenge_39():
+    # Get public and private key
+    public, private = set_up_rsa(3)
+    # Generate message
+    msg = random.randrange(2, public[1])
+    # Encrypt and decrypt
+    ciphertext = encrypt_rsa(msg, public)
+    plaintext = encrypt_rsa(ciphertext, private)
+    # Verify output
+    assert_true(msg == plaintext)
+
+
+## Challenge 40
+def crt(data):
+    # Textbook Chinese Remainder Theorem
+    N = functools.reduce(lambda a, b: a * b, [n for _, n in data])
+    output = 0
+    print('CRT:')
+    for (c, n) in data:
+        print('  x = {:6d} mod {}'.format(c, n))
+        X = int(N / n)
+        temp_result = c * X * modinv(X, n)
+        output = (output + temp_result) % N
+    print('  Solution: x = {}\n'.format(output))
+    return output
+
+@challenge(5, 40)
+def challenge_40():
+    e = 3
+    # For this attack to work, it is assumed that:
+    # - all `p`s and `q`s are unique;
+    # - all `n`s are coprime with each other;
+    # - the message is smaller than the smallest `n`.
+    # The code below will make sure that these conditions are met.
+    while True:
+        # Generate a random message
+        msg = random.randrange(1, 1000)
+        data, pqs = [], set()
+        for _ in range(e):
+            # Generate new public/private key pair
+            public, _ = set_up_rsa(e, pqs)
+            # If we end up getting a public key that's too small for our message, start over
+            if public[1] <= msg: break
+            # Collect encrypted text and public key
+            data.append((encrypt_rsa(msg, public), public[1]))
+        else:
+            # If we succsefully generated `e` ciphertexts and pubkeys, verify the pubkeys are coprime with each other
+            if are_coprime([n for _, n in data]):
+                #  If not, start over
+                break
+
+    # Use CRT and take `e`th root
+    r = round(crt(data) ** (1/e))
+    print('Original message: {}, found message: {}'.format(msg, r))
+    assert_true(r == msg)
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_33()
     challenge_34()
+    challenge_39()
+    challenge_40()
