@@ -1,6 +1,8 @@
 import sys, traceback
+import platform
 from colorama import init, Fore, Back
-init(convert=True)
+if platform.system() == 'Windows': 
+    init(convert=True)
 
 def challenge(set, challenge):
     def outer_wrapper(code):
