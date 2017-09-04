@@ -171,6 +171,140 @@ def challenge_34():
     assert_true(exchange_1_valid and exchange_2_valid and exchange_2_cracked)
 
 
+## Challenge 35
+class EchoAlice2:
+    def __init__(self):
+        self.p, self.g, self.s, self.a, self.msg = None, None, None, None, None
+
+    def initiate(self, p, g):
+        self.p = p
+        self.g = g
+        # Generate a (valid) private key a
+        self.a = random.randrange(1, p)
+        # Send p, g
+        return (p, g)
+
+    def send_A(self, inp):
+        assert inp
+        self.a = random.randrange(1, self.p)
+        return modexp(self.g, self.a, self.p)
+
+    def send_msg(self, inp, msg):
+        self.msg = msg
+        # Generate the shared secret s
+        self.s = modexp(inp, self.a, self.p)
+        # Send plaintext using SHA1 hash of shared secret as key, generated IV as IV
+        iv = set2.random_bytes(16)
+        ciphertext = set2.encrypt_aes_cbc(key=hashlib.sha1(long_to_bytes(self.s)).digest()[0:16], iv=iv, text=msg)
+        # Send ciphertext with IV
+        return ciphertext, iv
+
+    def verify_echo(self, inp):
+        (ciphertext, iv) = inp
+        # Decrypt received message
+        msg = set2.decrypt_aes_cbc(key=hashlib.sha1(long_to_bytes(self.s)).digest()[0:16], iv=iv, text=ciphertext)
+        # Verify message is the one that was sent
+        return msg == self.msg
+
+class EchoBob2:
+    def __init__(self):
+        self.p, self.g, self.s = None, None, None
+
+    def receive(self, inp):
+        (self.p, self.g) = inp
+        return True
+
+    def send_B(self, inp):
+        # Generate a (valid) private key b
+        b = random.randrange(1, self.p)
+        # Generate B
+        B = modexp(self.g, b, self.p)
+        # Generate the shared secret s
+        self.s = modexp(inp, b, self.p)
+        return B
+
+    def receive_msg(self, inp):
+        (ciphertext, iv) = inp
+        # Decrypt received message
+        msg = set2.decrypt_aes_cbc(key=hashlib.sha1(long_to_bytes(self.s)).digest()[0:16], iv=iv, text=ciphertext)
+        # Send plaintext using SHA1 hash of shared secret as key, generated IV as IV
+        iv = set2.random_bytes(16)
+        ciphertext = set2.encrypt_aes_cbc(key=hashlib.sha1(long_to_bytes(self.s)).digest()[0:16], iv=iv, text=msg)
+        # Send ciphertext with IV
+        return ciphertext, iv
+
+class EchoEve2:
+    def __init__(self, g_prime):
+        self.p, self.g, self.msg, self.iv, self.g_prime = None, None, None, None, g_prime
+
+    def intercept_alice_initiate(self, inp):
+        (p, g) = inp
+        self.p = p
+        self.g = g
+        return (p, self.g_prime)
+
+    def intercept_bob_receive(self, inp):
+        return True
+
+    def intercept_alice_send_msg(self, inp):
+        ciphertext, iv = inp
+        self.msg = ciphertext
+        self.iv = iv
+        return inp
+
+    def intercept_bob_receive_msg(self, inp):
+        return inp
+
+    def decrypt_message(self):
+        # We know s = 0, because Alice thinks B = p = 0 (mod p), and Bob thinks A = p = 0 (mod p)
+        key_candidates = []
+        if self.g_prime == 1:
+            # A=g^a, B=g'^b=1
+            # s_a=B^a=1^a=1, s_b=A^b=?
+            key_candidates = [1]
+        if self.g_prime == self.p:
+            # A=g^a, B=g'^b=0
+            # s_a=0^a=0^a=0, s_b=A^b=?
+            key_candidates = [0]
+        if self.g_prime == self.p-1:
+            # A=g^a, B=g'^b=(-1)^b={either 1 or -1}
+            # s_a=B^a={either 1 or -1}, s_b=A^b=?
+            key_candidates = [1, -1]
+
+        for key in key_candidates:
+            try:
+                return set2.pkcs7_remove_padding(set2.decrypt_aes_cbc(text=self.msg, key=hashlib.sha1(long_to_bytes(key)).digest()[0:16], iv=self.iv, unpad=False))
+            except ValueError:
+                continue
+        return None #raise ValueError("Decryption failed (keys tried: {})".format(key_candidates))
+
+def MitM_alter_group(g):
+    alice = EchoAlice2()
+    bob = EchoBob2()
+    eve = EchoEve2(g)
+
+    secret_msg = set2.random_bytes(50)
+    msg1 = alice.initiate(nist_p, nist_g)
+    msg1p = eve.intercept_alice_initiate(msg1)
+    msg2 = bob.receive(msg1p)
+    msg2p = eve.intercept_bob_receive(msg2)
+    msg3 = alice.send_A(msg2p)
+    msg4 = bob.send_B(msg3)
+    msg5 = alice.send_msg(msg4, secret_msg)
+    msg5p = eve.intercept_alice_send_msg(msg5)
+    #msg6 = bob.receive_msg(msg5p)
+    exchange_2_cracked = secret_msg == eve.decrypt_message() or MitM_alter_group(g)
+    return exchange_2_cracked
+
+@challenge(5, 35)
+def challenge_35():
+    g_1_cracked = MitM_alter_group(1)
+    g_p_cracked = MitM_alter_group(nist_p)
+    g_p_min_1_cracked = MitM_alter_group(nist_p-1)
+
+    assert_true(g_1_cracked and g_p_cracked and g_p_min_1_cracked)
+
+
 ## Challenge 39
 # All prime numbers between 2 and 1000
 PRIMES = set([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607, 613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701, 709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811, 821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911, 919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997])
@@ -302,5 +436,7 @@ def challenge_40():
 if __name__ == '__main__':
     challenge_33()
     challenge_34()
+    challenge_35()
     challenge_39()
     challenge_40()
+
