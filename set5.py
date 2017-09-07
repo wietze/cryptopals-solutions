@@ -1,6 +1,6 @@
 import random
 import hashlib
-import codecs
+import struct
 import functools
 
 from challenges import challenge, assert_true
@@ -336,17 +336,40 @@ def are_coprime(int_list):
     # If all `g`s unequal to 1, we know all ints are coprime
     return True
 
-def set_up_rsa(e, pqs=set()):
+def isProbablePrime(p, n):
+    for i in range(n):
+        a = random.randint(1, p)
+        if pow(a, p - 1, p) != 1:
+            return False
+    return True
+
+def getProbablePrime(bitcount):
+    while True:
+        p = random.randint(2**(bitcount - 1), 2**bitcount - 1)
+        if isProbablePrime(p, 5):
+            return p
+
+def set_up_rsa(e, pqs=set(), keysize=None):
     # Textbook RSA
     try:
-        # Select random `p`
-        p = random.sample(PRIMES - pqs, 1)[0]
-        # Add `p` to `pqs` to avoid picking it as q again
-        pqs.add(p)
-        # Select random `q`
-        q = random.sample(PRIMES - pqs, 1)[0]
-        # Add `q` to `pqs`
-        pqs.add(q)
+        if keysize is None:
+            # Select random `p`
+            p = random.sample(PRIMES - pqs, 1)[0]
+            # Add `p` to `pqs` to avoid picking it as q again
+            pqs.add(p)
+            # Select random `q`
+            q = random.sample(PRIMES - pqs, 1)[0]
+            # Add `q` to `pqs`
+            pqs.add(q)
+        else:
+            while True:
+                p = getProbablePrime(keysize//2)
+                q = getProbablePrime(keysize//2)
+                if p not in pqs and q not in pqs:
+                    pqs.add(p)
+                    pqs.add(q)
+                    break
+
         # Calculate `n`
         n = p * q
         # Calculate `et`
@@ -356,7 +379,7 @@ def set_up_rsa(e, pqs=set()):
     except ValueError:
         # If e and et are not coprime, the modular inverse won't exist.
         # Hence, generate two new primes and try again
-        return set_up_rsa(e)
+        return set_up_rsa(e, pqs=pqs, keysize=keysize)
     # Return public and private keys
     public = (e, n)
     private = (d, n)
@@ -366,13 +389,13 @@ def encrypt_rsa(msg, key):
     # Note that encrypt = decrypt for RSA
     return modexp(msg, key[0], key[1])
 
-def string_to_int(message):
-    return int(codecs.encode(message, 'hex'), 16)
+def bytes_to_int(message):
+    return int.from_bytes(message, byteorder='big')
 
-def int_to_string(integer):
-    return codecs.decode(hex(integer)[2:], 'hex')
+def int_to_bytes(integer):
+    return integer.to_bytes((integer.bit_length() + 7) // 8, byteorder='big')
 
-assert int_to_string(string_to_int(b'test')) == b'test'
+assert int_to_bytes(bytes_to_int(b'hello')) == b'hello'
 
 @challenge(5, 39)
 def challenge_39():
