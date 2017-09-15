@@ -188,8 +188,49 @@ def challenge_43():
         assert_true(False)
 
 
+## Challenge 44
+def get_challenge_44_messages():
+    # Open file, read to string
+    with open("inputs/44.txt") as file:
+        lines = file.read()
+    result = []
+    # Parse input file into desired format
+    for (msg, s, r, m) in re.findall(r'msg: (.*?)\ns: ([a-z0-9]+)\nr: ([a-z0-9]+)\nm: ([a-z0-9]+)', lines, re.MULTILINE):
+        result.append({'msg':str.encode(msg), 's':int(s), 'r':int(r), 'm':int(m, 16)})
+    # Return the list of messages with their signatures and hashes
+    return result
+
+@challenge(6, 44)
+def challenge_44():
+    # Set up `p`, `q` and `g` parameters
+    p = 0x800000000000000089e1855218a0e7dac38136ffafa72eda7859f2171e25e65eac698c1702578b07dc2a1076da241c76c62d374d8389ea5aeffd3226a0530cc565f3bf6b50929139ebeac04f48c3c84afb796d61e5a4f9a8fda812ab59494232c7d2b4deb50aa18ee9e132bfa85ac4374d7f9091abc3d015efc871a584471bb1
+    q = 0xf4f47f05794b256174bba6e9b396a7707e563c5b
+    g = 0x5958c9d3898b224b12672c0b98e06c60df923cb8bc999d119458fef538b8fa4046c8db53039db620c094c9fa077ef389b5322a559946a71903f990f1f7e0e025e2d7f7cf494aff1a0470f5b64c36b625a097f1651fe775323556fe00b3608c887892878480e99041be601a62166ca6894bdd41a7054ec89f756ba9fc95302291
+    # Create new DSA instance
+    dsa = DSA(p, q, g)
+    # Read inputs for this challenge from file
+    messages = get_challenge_44_messages()
+    # Iterate over messages
+    for i, msg1 in enumerate(messages):
+        for msg2 in messages[(i+1):]:
+            # Check if the same `k` was used (implies `r` values are equal)
+            if msg1['r'] == msg2['r']:
+                # Use '9th grade math' to recover `k`
+                a = (msg1['m'] - msg2['m']) % q
+                b1 = (msg1['s'] - msg2['s']) % q
+                b2 = set5.modinv(b1, q)
+                k = (a * b2) % q
+                print('Recovered k: {}'.format(k))
+                # Recover `x`
+                x = dsa.crack_x(k, msg=msg1['msg'], sig=(msg1['r'], msg1['s']))
+                print('Recovered x: {}'.format(hashlib.sha1(hex(x)[2:].encode()).hexdigest()))
+                # Verify the found private key `x` is the one we are looking for
+                assert_true(hashlib.sha1(hex(x)[2:].encode()).hexdigest() == 'ca8f6f7c66fa362d40760d135b763eb8527d3d52')
+                return
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_41()
     challenge_42()
     challenge_43()
+    challenge_44()
