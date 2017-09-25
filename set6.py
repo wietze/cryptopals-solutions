@@ -138,7 +138,7 @@ class DSA:
 
     def verify(self, msg, sig, y):
         r, s = sig
-        if not(0 < r and r < self.q): raise ValueError('Ir not between 0 and q (r={})'.format(r))
+        if not(0 < r and r < self.q): raise ValueError('r not between 0 and q (r={})'.format(r))
         if not(0 < s and s < self.q): raise ValueError('s not between 0 and q (s={})'.format(s))
         w = set5.modinv(s, self.q)
         u1 = (self.__get_hash__(msg) * w) % self.q
@@ -161,7 +161,7 @@ def challenge_43():
 
     # Set up new DSA instance and keypair
     dsa = DSA(p, q, g)
-    x,y = dsa.generate_keypair()
+    x, y = dsa.generate_keypair()
 
     # Part 1: try to verify a valid signature
     sig, k = dsa.sign(message, x)
@@ -228,9 +228,36 @@ def challenge_44():
                 assert_true(hashlib.sha1(hex(x)[2:].encode()).hexdigest() == 'ca8f6f7c66fa362d40760d135b763eb8527d3d52')
                 return
 
+
+## Challenge 45
+@challenge(6, 45)
+def challenge_45():
+    # Set up `p` and `q` parameters
+    p = 0x800000000000000089e1855218a0e7dac38136ffafa72eda7859f2171e25e65eac698c1702578b07dc2a1076da241c76c62d374d8389ea5aeffd3226a0530cc565f3bf6b50929139ebeac04f48c3c84afb796d61e5a4f9a8fda812ab59494232c7d2b4deb50aa18ee9e132bfa85ac4374d7f9091abc3d015efc871a584471bb1
+    q = 0xf4f47f05794b256174bba6e9b396a7707e563c5b
+
+    # Create new DSA instance with `g` = `p` + 1
+    dsa = DSA(p, q, g=p+1)
+    x, y = dsa.generate_keypair()
+
+    # Part 1: try to verify a valid signature
+    message = b"Hello world!"
+    sig, _ = dsa.sign(message, x)
+    assert dsa.verify(message, sig, y)
+
+    # Part 2: Try to obtain the magic signature that will verify every message
+    # Let's pick z=1 to keep things simple
+    r2 = (y % p) % q
+    s2 = r2 % q
+    sig2 = (r2, s2)
+
+    # Verify two arbitrary strings against the same signature
+    assert_true(dsa.verify(b"Hello, world", sig2, y) and dsa.verify(b"Goodbye, world", sig2, y))
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_41()
     challenge_42()
     challenge_43()
     challenge_44()
+    challenge_45()
