@@ -1,10 +1,14 @@
+import os
 import random
 import hashlib
 import re
+import base64
+import colorama
 
 from challenges import challenge, assert_true
 import set1, set2, set3, set4, set5
 # From: https://cryptopals.com/sets/6
+colorama.init()
 
 ## Challenge 41
 class RsaOracle:
@@ -254,6 +258,45 @@ def challenge_45():
     # Verify two arbitrary strings against the same signature
     assert_true(dsa.verify(b"Hello, world", sig2, y) and dsa.verify(b"Goodbye, world", sig2, y))
 
+
+## Challenge 46
+def rsa_oracle_plaintext_even(ciphertext, priv):
+    return set5.encrypt_rsa(ciphertext, priv) % 2 == 0
+
+@challenge(6, 46)
+def challenge_46():
+    print()
+    # Get message, create RSA keypair, generate ciphertext
+    message = base64.b64decode('VGhhdCdzIHdoeSBJIGZvdW5kIHlvdSBkb24ndCBwbGF5IGFyb3VuZCB3aXRoIHRoZSBGdW5reSBDb2xkIE1lZGluYQ==')
+    pub, priv = set5.set_up_rsa(e=3, keysize=1024)
+    ciphertext = set5.encrypt_rsa(set5.bytes_to_int(message), pub)
+    # Set up our Oracle
+    oracle = lambda x: rsa_oracle_plaintext_even(x, priv)
+    # Verify the keypair works
+    assert set5.int_to_bytes(set5.encrypt_rsa(ciphertext, priv)) == message
+    # Set initial lower and upper bound, as well as intermediate ciphertext
+    lower_bound, upper_bound = 0, pub[1]
+    ciphertext_ = ciphertext
+
+    # Perform the below until the lower and upper bound converge
+    while upper_bound != lower_bound:
+        # Multiply plaintext by multiplying ciphertext by 2**`e` mod `N`
+        ciphertext_ = (ciphertext_ * (2 ** pub[0])) % pub[1]
+        # If the oracle says True, update the upper bound; if False, update the lower bound
+        if oracle(ciphertext_):
+            upper_bound = (upper_bound + lower_bound) // 2
+        else:
+            lower_bound = (upper_bound + lower_bound) // 2
+        # Create 'Holywood style' output
+        intermediate_result = str(set5.int_to_bytes(upper_bound))[:os.get_terminal_size().columns - 1]
+        fill = " " * (os.get_terminal_size().columns - 1 - len(intermediate_result))
+        print(colorama.Cursor.UP(1) + intermediate_result + fill)
+
+    # Print final outputs
+    print(colorama.Cursor.UP(1) + "Result:   {}".format(set5.int_to_bytes(upper_bound)))
+    print("Original: {}".format(message))
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_41()
@@ -261,3 +304,4 @@ if __name__ == '__main__':
     challenge_43()
     challenge_44()
     challenge_45()
+    challenge_46()
