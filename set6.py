@@ -3,6 +3,7 @@ import random
 import hashlib
 import re
 import base64
+from tqdm import tqdm
 import colorama
 
 from challenges import challenge, assert_true
@@ -281,12 +282,12 @@ def challenge_46():
     # Perform the below until the lower and upper bound converge
     while upper_bound != lower_bound:
         # Multiply plaintext by multiplying ciphertext by 2**`e` mod `N`
-        ciphertext_ = (ciphertext_ * (2 ** pub[0])) % pub[1]
+        ciphertext_ = (ciphertext_ * set5.modexp(2, pub[0], pub[1])) % pub[1]
         # If the oracle says True, update the upper bound; if False, update the lower bound
         if oracle(ciphertext_):
-            upper_bound = (upper_bound + lower_bound) // 2
+            upper_bound = floor(upper_bound + lower_bound, 2)
         else:
-            lower_bound = (upper_bound + lower_bound) // 2
+            lower_bound = floor(upper_bound + lower_bound, 2)
         # Create 'Holywood style' output
         intermediate_result = str(set5.int_to_bytes(upper_bound))[:os.get_terminal_size().columns - 1]
         fill = " " * (os.get_terminal_size().columns - 1 - len(intermediate_result))
@@ -296,6 +297,161 @@ def challenge_46():
     print(colorama.Cursor.UP(1) + "Result:   {}".format(set5.int_to_bytes(upper_bound)))
     print("Original: {}".format(message))
 
+## Challenge 47
+# PKCS oracle: check if given ciphertext results in PKCS conforming plaintext
+def rsa_oracle_02(ciphertext, priv):
+    plaintext = set5.int_to_bytes(set5.encrypt_rsa(ciphertext, priv)).rjust((priv[1].bit_length() + 7) // 8, b'\x00')
+    return plaintext[0:2] == b'\x00\x02'
+
+# Create a PKCS conformant message
+def pad_PKCS(plaintext, k):
+    return b'\x00\x02' + (b'\xff' * (k - len(plaintext) - 3)) + b'\x00' + plaintext
+
+# Custom ceil/floor functions to ensure desired behaviour
+def ceil(x, y):
+    r = x // y
+    if x % y:
+        r += 1
+    return r
+
+def floor(x, y):
+    return x // y
+
+class bleichenbacher98:
+    def __init__(self, ciphertext, pub, oracle):
+        # Set up initial parameters for bleichenbacher98 attack
+        self.e, self.N = pub[0], pub[1]
+        k = (self.N.bit_length() + 7) // 8
+        self.B = 2 ** (8 * (k - 2))
+        self.M = [(2*self.B, 3*self.B - 1)]
+        self.c = ciphertext
+        self.oracle = oracle
+        self.s = -1
+
+    # Step 2a
+    def Step2a(self):
+        pbar = tqdm(desc='Step 2A')
+        # Start at (N // 3B)
+        s = ceil(self.N, 3*self.B)
+        while True:
+            pbar.update(1)
+            # Generate `c_1`
+            c1 = (self.c * set5.modexp(s, self.e, self.N)) % self.N
+            # See if `c(s)^e mod N` is PKCS conforming
+            if self.oracle(c1):
+                pbar.set_description('Step 2A: Initial s found ({})'.format(s))
+                pbar.close()
+                # Return found value `s`
+                return s % self.N
+            s += 1
+
+    # Step 2c
+    def Step2c(self, M, s, pbar2):
+        # For all (a, b) pairs:
+        for (a, b) in M:
+            # Compute `r`
+            r = ceil(2 * (b*s - 2*self.B), self.N)
+            t = True
+            while t:
+                pbar2.update(1)
+                # Compute `S_{min}`, `S_{max}`
+                Smin, Smax = ceil(2*self.B + r*self.N, b), ceil(3*self.B + r*self.N, a) + 1
+                # If `S_{min}` exceeds `S_{max}`, go to the next (a, b) pair
+                if Smin >= Smax: t = False
+                # For all integers in range `(S_{min}, S_{max})`:
+                for s in range (Smin, Smax):
+                    # Generate `ci`
+                    ci = (self.c * set5.modexp(s, self.e, self.N)) % self.N
+                    # See if `c(s)^e mod N` is PKCS conforming
+                    if self.oracle(ci):
+                        pbar2.set_description(('Step 2C: Intermediate s found ({})'.format(s))[:os.get_terminal_size().columns - 33])
+                        # Return found value `s`
+                        return s
+                # If no `s` was found, try next `r`
+                r += 1
+        # If all pairs in `M` are exhausted and yet no `s` was found, raise an exception
+        raise Exception("No values found")
+
+    # Step 3
+    def Step3(self, M, s):
+        # Initialise result set
+        R = []
+        # For all pairs (a, b) in M:
+        for (a, b) in M:
+            # Compute `R_{min}` and `R_{max}`
+            Rmin, Rmax = ceil(a*s - 3*self.B + 1, self.N), floor(b*s - 2*self.B, self.N) + 1
+            # Make sure `R_{min}` is smaller than `R_{max}`
+            assert Rmin <= Rmax
+            # For all values in range `(R_{min}, R_{max})`:
+            for r in range(Rmin, Rmax):
+                # Compute values `x` and `y`
+                x = max(a, ceil(2*self.B + r*self.N, s))
+                y = min(b, floor(3*self.B - 1 + r*self.N, s))
+                # If `x` is bigger than `y`, try the next value for `r`
+                if x > y: continue
+                # Append the found `(x, y)` to the result set
+                R.append((x, y))
+        # Return the result set
+        return R
+
+    def solve(self):
+        # Perform step 2A, followed by step 3
+        self.s = self.Step2a()
+        self.M = self.Step3(self.M, self.s)
+        pbar2 = tqdm(desc='Step 2C')
+        while True:
+            # Step 4: If `M` contains only one interval of length 1, then we found our solution
+            if self.M[0][0] == self.M[0][1]:
+                pbar2.set_description(('Step 2C: Final s found ({})'.format(self.M[0][0]))[:os.get_terminal_size().columns - 33])
+                pbar2.close()
+                return b'\x00' + set5.int_to_bytes(self.M[0][0])
+            # If not, perform step 2C followed by step 3, and try again
+            self.s = self.Step2c(self.M, self.s, pbar2)
+            self.M = self.Step3(self.M, self.s)
+
+
+@challenge(6, 47)
+def challenge_47():
+    # Set up new RSA instance
+    pub, priv = set5.set_up_rsa(e=3, keysize=256)
+    # Prepare message
+    message = pad_PKCS(b'kick it, CC', k=(pub[1].bit_length() + 7) // 8)
+    # Get ciphertext using generated RSA instance
+    ciphertext = set5.encrypt_rsa(set5.bytes_to_int(message), pub)
+    # Set up our Oracle
+    oracle = lambda x: rsa_oracle_02(x, priv)
+    assert oracle(ciphertext)
+
+    # Perform the actual attack: set up bleichenbacher98 instance
+    bb98 = bleichenbacher98(ciphertext, pub, oracle)
+    # Run the attack
+    found_message = bb98.solve()
+    print("Found message:", found_message)
+
+    # Verify the found message equals our original plaintext
+    assert_true(found_message == message)
+
+## Challenge 48
+@challenge(6, 48)
+def challenge_48():
+    # Set up new RSA instance, this time with bigger key length
+    pub, priv = set5.set_up_rsa(e=3, keysize=768)
+    # Prepare message
+    message = pad_PKCS(b'I don\'t know, Marge. Trying is the first step towards failure - Homer Simpson', k=(pub[1].bit_length() + 7) // 8)
+    # Get ciphertext using generated RSA instance
+    ciphertext = set5.encrypt_rsa(set5.bytes_to_int(message), pub)
+    # Set up our Oracle
+    oracle = lambda x: rsa_oracle_02(x, priv)
+    assert oracle(ciphertext)
+
+    # Perform the actual attack: set up bleichenbacher98 instance
+    bb98 = bleichenbacher98(ciphertext, pub, oracle)
+    # Run the attack
+    found_message = bb98.solve()
+    print("Found message:", found_message)
+
+    # Verify the found message equals our original plaintext
+    assert_true(found_message == message)
 
 ## Execute individual challenges
 if __name__ == '__main__':
@@ -305,3 +461,5 @@ if __name__ == '__main__':
     challenge_44()
     challenge_45()
     challenge_46()
+    challenge_47()
+    challenge_48()
