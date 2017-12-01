@@ -29,7 +29,7 @@ def validate_transaction(received_message):
     return received_message == expected_message
 
 def xor_string(a, b):
-    return bytearray([int(x) ^ int(y) for x, y in zip(a,b)])
+    return bytearray([int(x) ^ int(y) for x, y in zip(a, b)])
 
 @challenge(7, 49)
 def challenge_49():
@@ -60,6 +60,32 @@ def challenge_49():
     assert_true(validate_transaction(forged_message))
 
 
+## Challenge 50
+@challenge(7, 50)
+def challenge_50():
+    # Create hash function
+    original_key = b'YELLOW SUBMARINE'
+    original_iv = b'\x00' * 16
+    generate_hash = lambda javascript: set2.encrypt_aes_cbc(javascript, original_key, original_iv, False)[-16:]
+
+    # Recreate original hash (the one we will forge)
+    original_message = set2.pkcs7_add_padding(b"alert('MZA who was that?');\n", 16)
+    original_hash = generate_hash(original_message)
+    assert original_hash == bytes.fromhex('296b8d7cb78a243dda4d0a61d33bbdd1')
+
+    # New piece of JavaScript
+    new_message = b"alert('Ayo, the Wu is back!');//"
+    # Find the last cipher block of our new JavaScript (will be the IV of the following block)
+    ciphertext_block_1_2 = set2.encrypt_aes_cbc(new_message, original_key, original_iv, False)[-16:]
+    # Generate a third plaintext block for our new JavaScript, by XORing the found IV with the first plaintext block of the original JavaScript
+    plaintext_block_3 = xor_string(ciphertext_block_1_2[-16:], original_message[:16])
+    # Now, append the found block plus the remaining blocks of the original JavaScript
+    new_message += plaintext_block_3 + original_message[16:]
+    # Hashing this will result in the original hash
+    assert_true(generate_hash(new_message) == original_hash)
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_49()
+    challenge_50()
