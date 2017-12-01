@@ -64,9 +64,10 @@ def challenge_10():
 def random_bytes(length):
     return bytes([random.randrange(0, 256) for i in range(length)])
 
-def encrypt_aes_cbc(text, key, iv):
+def encrypt_aes_cbc(text, key, iv, padding=True):
     # Add padding, if neccessary
-    text = pkcs7_add_padding(text, len(text) + (len(key) - len(text) % len(key)))
+    if padding:
+        text = pkcs7_add_padding(text, len(text) + (len(key) - len(text) % len(key)))
     # Create blocks of the key's length each
     blocks = [text[i:i+len(key)] for i in range(0, len(text), len(key))]
     results = []
