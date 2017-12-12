@@ -1,4 +1,7 @@
 import re
+import zlib
+import string
+import random
 
 from challenges import challenge, assert_true
 import set1, set2, set3, set4, set5, set6
@@ -85,7 +88,61 @@ def challenge_50():
     assert_true(generate_hash(new_message) == original_hash)
 
 
+## Challenge 51
+token = 'TmV2ZXIgcmV2ZWFsIHRoZSBXdS1UYW5nIFNlY3JldCE='
+def compression_oracle(msg, cipher):
+    template = "POST / HTTP/1.1\r\nHost: hapless.com\r\nCookie: sessionid={}\r\nContent-Length: {}\r\n{}"
+    compress = zlib.compress
+    return len(cipher(compress(template.format(token, len(msg), msg).encode())))
+
+def find_token(msg, oracle):
+    # Create a list of possible next characters
+    alphabet = string.ascii_uppercase + string.ascii_lowercase + string.digits + '=' + '\r'
+
+    # Create an outer loop - we need this if we rely on padding, such as for AES-CBC
+    i = 0
+    while True:
+        result_set = {}
+        # For each option:
+        for option in alphabet:
+            # Construct the new message
+            new_msg = msg + option
+            # Obtain oracle score (prepend text before message if padding is required)
+            score = oracle(alphabet[:i] + new_msg)
+            # Add score with value to result set
+            result_set[score] = result_set.get(score, []) + [new_msg]
+        if len(result_set) > 1: break
+        i += 1
+
+    # Iterate over the values with the lowest oracle scores:
+    for option in result_set[min(result_set.keys())]:
+        # If our option is a newline character, it probably means we have found the complete token, so we can return what we have
+        if option[-1] == '\r':
+            return msg
+        # Else, call this function recursively
+        return find_token(option, oracle)
+
+@challenge(7, 51)
+def challenge_51():
+    # Prepare a Stream Cipher compression oracle and an AES-CBC compression oracle
+    stream_oracle = lambda msg: compression_oracle(msg, lambda x: set3.encrypt_aes_ctr(x, key=set2.random_bytes(16), nonce=random.randint(2**8, 2**16)))
+    cbc_oracle = lambda msg: compression_oracle(msg, lambda x: set2.encrypt_aes_cbc(x, key=set2.random_bytes(16), iv=set2.random_bytes(16)))
+
+    # Define the base text
+    base = 'POST / HTTP/1.1\r\nHost: hapless.com\r\nCookie: sessionid='
+
+    # Find the tokens using the Stream Cipher
+    print('Stream Cipher: ', end='')
+    assert_true(find_token(base, oracle=stream_oracle)[len(base):] == token)
+
+    # AES-CBC is more challenging, as it works with blocks.
+    # To detect a successful guess, we'll have to add padding which will make 'wrong' guesses one block longer than the correct one
+    print('AES-CBC:       ', end='')
+    assert_true(find_token(base, oracle=cbc_oracle)[len(base):] == token)
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_49()
     challenge_50()
+    challenge_51()
