@@ -2,6 +2,8 @@ import re
 import zlib
 import string
 import random
+import math
+from tqdm import tqdm
 
 from challenges import challenge, assert_true
 import set1, set2, set3, set4, set5, set6
@@ -141,8 +143,166 @@ def challenge_51():
     assert_true(find_token(base, oracle=cbc_oracle)[len(base):] == token)
 
 
+## Challenge 52
+total_md_calls = 0
+
+def MerkleDamgard(M, nbytes, H, get_map=False):
+    # Use an (ugly) global variable to keep track of how often we call this hash function in total
+    global total_md_calls
+    total_md_calls += 1
+    # Extract the blocks
+    blocks = [M[i:i+16] for i in range(0, len(M), 16)]
+    m = {}
+    # Simulate Merkle Damgard structure
+    for i, block in enumerate(blocks):
+        H = set2.encrypt_aes_ecb(block, key=set2.pkcs7_add_padding(H, 16), padding=False)[:nbytes]
+        m[H] = i
+    # Return final block
+    return (H, m) if get_map else H
+
+def FindCollisions(n):
+    # Define our hash functions `f` and `g` (cheap and expensive, respectively)
+    cheap_hash = lambda x, y: MerkleDamgard(x, 2, y)
+    expensive_hash = lambda x: MerkleDamgard(x, 3, b'\x00'*3)
+
+    while True:
+        hash_map = {}
+        collisions = []
+        # Start Phase 1: generate 2^n hash collisions using `f`
+        with tqdm(desc="Phase 1", total=int(2**n)) as pbar:
+            H = b'\x00'*2
+            while len(collisions) < 2**n:
+                # Generate random message
+                message = set2.random_bytes(16)
+                # Get hash value
+                hash_value = cheap_hash(message, H)
+                # If a new collision was found, update the progress bar
+                if hash_value in hash_map and len(hash_map[hash_value]) == 1 and hash_map[hash_value][0] != message:
+                    H = hash_value
+                    # If it is the first collision, simply add it to the list
+                    if len(collisions) < 1:
+                        pbar.update(1)
+                        collisions.append(hash_map[hash_value] + [message])
+                    else:
+                    # If it isn't, 'double' the existing collisions by simply appending our new message
+                        for c in list(collisions):
+                            #assert cheap_hash(c[0] + message, b'\x00'*2) == cheap_hash(c[1] + message, b'\x00'*2)
+                            pbar.update(1)
+                            collisions.append([c[0] + message, c[1] + message])
+                    hash_map = {}
+                else:
+                    # Add found hash and message to `hash_map`, which keeps track of all hashes and corresponding messages
+                    hash_map[hash_value] = hash_map.get(hash_value, []) + [message]
+
+        # Start Phase 2: for the found 2^n collisions, try all pairs and see if they also collide under `g`
+        with tqdm(desc="Phase 2", total=len(collisions)) as pbar:
+            for collision in collisions:
+                pbar.update(1)
+                # If they collide, we're done
+                if expensive_hash(collision[0]) == expensive_hash(collision[1]):
+                    pbar.close()
+                    print("Collision found!")
+                    return
+            else:
+                # If no collisions under `g` were found, we have to start over
+                pbar.set_description("Phase 2: No collision found (restart)")
+                n += 2
+
+@challenge(7, 52)
+def challenge_52():
+    FindCollisions(24 / 2)
+    print("\nExpected n/o calls: {:,}".format(2 ** ((16 + 24) // 2)))
+    print("Actual n/o calls:   {:,}".format(total_md_calls))
+
+
+## Challenge 53
+HASH_LENGTH = 2 #Just like the last challenge, we'll assume a hash length of 16 bits (=2 bytes) for simplicity
+
+def expandable_message(k, md_hash):
+    # Define the initial state
+    initial_state = b'\x00'*HASH_LENGTH
+    result = {}
+    # Iterate from k to 0
+    for i in range(k, 0, -1):
+        # Generate a single message with a block length of 1
+        single_msg = set2.random_bytes(16)
+        single_msg_hash = md_hash(single_msg, initial_state)
+        # Generate dummy blocks of length 2^(i-1)
+        dummy_blocks = set2.random_bytes(16 * (2 ** (i - 1)))
+        dummy_blocks_hash = md_hash(dummy_blocks, initial_state)
+
+        poly_msg = None
+        final_block = None
+        # Bruteforce until we find a collision between `single_msg` and `dummy_blocks + final_block`
+        while single_msg_hash != poly_msg:
+            final_block = set2.random_bytes(16)
+            poly_msg = md_hash(final_block, dummy_blocks_hash)
+        # Verify the hashes are equal now
+        assert md_hash(single_msg, initial_state) == md_hash(dummy_blocks + final_block, initial_state)
+        # Append the shared hash, the short message and the long message to our result set
+        result[i] = [single_msg_hash, single_msg, dummy_blocks + final_block]
+        # Use the shared hash as the new initial state
+        initial_state = single_msg_hash
+    return result
+
+@challenge(7, 53)
+def challenge_53():
+    # Define our Merkle Damgard hash function
+    md_hash = lambda x, y, z=False: MerkleDamgard(x, HASH_LENGTH, y, z)
+    # Generate the message we'll attack
+    M = set2.random_bytes(16 * 16)
+    # Generate the hashmap, i.e. the intermediate hashes per block
+    M_hashmap = md_hash(M, b'\x00' * HASH_LENGTH, True)
+    # Compute `k`
+    k = int(math.log2(len(M) // 16))
+    # Generate expandable message
+    print('Message to preimage has {} blocks (i.e. k = {})'.format(len(M)//16, k))
+    print("Generating expandable message... ", end='')
+    expandable_output = expandable_message(k, md_hash)
+    print('done')
+
+    # Get hash of our final block in the expandable message
+    final_hash = list(expandable_output.values())[-1][0]
+    index = -1
+    # Find an index that is at equal to or greater than `k`
+    print("Generating bridge... ", end='')
+    while index < k:
+        bridge, bridge_hash = None, None
+        # Check if generated message collides with one of our intermediate hashes
+        while bridge_hash not in M_hashmap[1].keys():
+            bridge = set2.random_bytes(16)
+            bridge_hash = md_hash(bridge, final_hash)
+        # If it does, that will be our index
+        index = M_hashmap[1][bridge_hash]
+    print("done\nFound collision against block {} of M".format(index))
+
+    # The next step is to replace all blocks up until our collision (i.e. the bridge)
+    # This requires some binary math, as sometimes the short message is required, while
+    #  sometimes the long one is required.
+    prefix_length = index
+    prefix = b''
+    for i in range(k, 0, -1):
+        # Compute the length of the long message we're considering
+        q = 2 ** (i - 1) + 1
+        # If the prefix length minus the long message length is smaller than the remaining blocks:
+        if prefix_length - q < i - 1:
+            # Use short message
+            prefix_length -= 1
+            prefix += expandable_output[i][1]
+        else:
+            # Use long message
+            prefix_length -= q
+            prefix += expandable_output[i][2]
+    # Construct the new message
+    constructed_message = prefix + bridge + M[(16*(index+1)):]
+    # Verify the constructed message has the same length and the same hash value as our original message
+    assert_true(len(constructed_message) == len(M) and md_hash(constructed_message, b'\x00' * HASH_LENGTH) == md_hash(M, b'\x00' * HASH_LENGTH))
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_49()
     challenge_50()
     challenge_51()
+    challenge_52()
+    challenge_53()
