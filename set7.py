@@ -299,6 +299,78 @@ def challenge_53():
     assert_true(len(constructed_message) == len(M) and md_hash(constructed_message, b'\x00' * HASH_LENGTH) == md_hash(M, b'\x00' * HASH_LENGTH))
 
 
+## Challenge 54
+def generate_hash_tree(hashlist, messages, md_hash, pb):
+    # If there is only one hash in the list, we're done
+    if len(hashlist[-1]) == 1: return hashlist, messages
+    # Create pairs, initialise variables
+    pairs = zip(hashlist[-1][::2], hashlist[-1][1::2])
+    msg = set2.random_bytes(16)
+    found_hashes, found_msgs = [], []
+
+    # Iterate over all pairs we have
+    for x, y in pairs:
+        # See if we found a collision
+        while md_hash(msg, x) != md_hash(msg, y):
+            # If not, generate a new message
+            msg = set2.random_bytes(16)
+        pb.update(1)
+        # Append found hash to the hash tree's current level
+        found_hashes.append(md_hash(msg, x))
+        # Append found message to the message tree's current level
+        found_msgs.append(msg)
+
+    # Add new level to hash tree and message tree
+    hashlist.append(found_hashes)
+    messages.append(found_msgs)
+    # Go one level deeper
+    return generate_hash_tree(hashlist, messages, md_hash, pb)
+
+@challenge(7, 54)
+def challenge_54():
+    # Set parameters, define hash function
+    k = 4   # 2^4 = 16
+    md_hash = lambda x, y: MerkleDamgard(x, 2, y)
+    START_IV = b'\x00'*16
+
+    # Generate `2^k` random messages with their hashes, then add them as leaves to the hash/message tree
+    hash_tree, msg_tree = [[]], [[]]
+    for _ in range(2**k):
+        msg = set2.random_bytes(16)
+        msg_tree[0].append(msg)
+        hash_tree[0].append(md_hash(msg, START_IV))
+
+    # Generate full hash/message tree
+    print('k = {}'.format(k))
+    with tqdm(desc="Generating hash tree", total=(2**k)-1) as progress:
+        hash_tree, msg_tree = generate_hash_tree(hash_tree, msg_tree, md_hash, progress)
+    # Make claim based on the root of the hash tree
+    hash_value = hash_tree[-1][0]
+    print('> I hereby claim the hash will be equal to {}!'.format(hash_value))
+
+    # Now, _after_ we have made our claim, craft our message with the match results
+    msg = b'Ajax-PSV=3-0; Feyenoord-RKC=0-15'
+    # Generate hash of our message
+    msg_hash = md_hash(msg, START_IV)
+    # Our crafted message starts with the original message
+    crafted_msg = msg
+    # Find a collision between our message's hash and one of the leaves in the hash tree
+    glue, glue_hash = None, None
+    while glue_hash not in hash_tree[0]:
+        glue = set2.random_bytes(16)
+        glue_hash = md_hash(glue, msg_hash)
+    # Append the glue to our crafted message
+    crafted_msg += glue
+    # Find the index of the leaf we found a collision against
+    index = hash_tree[0].index(glue_hash)
+    # Now find the remaining `k` blocks that will eventually hash to `hash_value`
+    for level in range(1, k+1):
+        index = index // 2
+        crafted_msg += msg_tree[level][index]
+    # Verify our crafted message hashes to the hash value we claimed it would have
+    assert_true(md_hash(crafted_msg, START_IV) == hash_value)
+
+
 ## Execute individual challenges
 if __name__ == '__main__':
     challenge_49()
@@ -306,3 +378,4 @@ if __name__ == '__main__':
     challenge_51()
     challenge_52()
     challenge_53()
+    challenge_54()
